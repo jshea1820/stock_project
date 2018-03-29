@@ -28,10 +28,24 @@ class Stocknet:
 
         self.symbol = symbol
 
+        # Reads in stock data
+        print("Reading in data for stock {}".format(self.symbol))
+        stock = quandl.get('WIKI/{}'.format(self.symbol))
+        print("Stock successfully read in")
+
+        # Sets number of days of data acquired
+        self.num_days = len(stock['Open'])
+        print("{} days worth of data".format(num_days))
+
+        # Calculates daily change percentage values
+        stock['Delta_p'] = (stock['Close'] - stock['Open']) / stock['Open']
+        print("Calculated Daily % changes")
         
 
     def set_train_data(self, start_date, end_date):
         '''Slices the stock data into only the parts wanted for the training data'''
+
+        
         
         
         

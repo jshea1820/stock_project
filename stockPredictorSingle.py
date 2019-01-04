@@ -1,67 +1,79 @@
-#!/anaconda3/bin/python3
-
-'''
-
-Jack Shea
-23 May, 2018
-
-price_predictor.py
-
-- Creates and trains a neural network for determining
-- s&p index price based on changes in constituent stocks
-
-'''
-
-# Imported modules
 import pandas as pd
 import tensorflow as tf
 import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+#import matplotlib.pyplot as plt
 
-# Brings in input training data as dataframe
-data = pd.read_csv('data_update.csv', index_col = 'Date')
-print(data)
+# Import data
+print("Reading in data...")
+data = pd.read_csv('aal_stock.csv')
 
-# Creates input matrix and output vector
-n = data.shape[0]
-p = data.shape[1] - 1
-print("Data is of shape ({},{})".format(n,p))
+# Drop date variable, just leaves stock prices
+data = data.drop(['DATE'], 1)
 
-# Turns data into np array
+# Dimensions of dataset
+n = data.shape[0] # 41266 (number of values)
+
+# Make data a numpy array
 data = data.values
 
-# Divides data into train and test set
+print("Successful data read, " + str(n) + " data points")
+print("-"*50)
+
+# Training and test data
 train_start = 0
 train_end = int(np.floor(0.8*n))
-test_start = train_end
+print("Training network with values 0 to " + str(train_end))
+test_start = train_end + 1
 test_end = n
+print("Testing network with values " + str(test_start) + " to " + str(test_end))
+print("-"*50)
+
+# slices data
 data_train = data[np.arange(train_start, train_end), :]
 data_test = data[np.arange(test_start, test_end), :]
-print("Training from 0 to {}, testing from {} to {}".format(train_end-1, test_start, n))
 
-# Creates training and testing inputs and outputs
-X_train = data_train[:, :-1]
-y_train = data_train[:, -1]
-X_test = data_test[:, :-1]
-y_test = data_test[:, -1]
+# Creates scaler for scaling input values from 0-1
+print("Scaling data...")
+scaler = MinMaxScaler()
+scaler.fit(data_train)
 
-# Creates placeholders for input matrix and output vector
-X = tf.placeholder(dtype=tf.float32, shape=[None, p])
-y = tf.placeholder(dtype=tf.float32, shape=[None])
+# Transforms data from 0-1 using scaler
+data_train = scaler.transform(data_train)
+data_test = scaler.transform(data_test)
+print("Data scaled")
+print("-"*50)
 
-# Model architecture parameters
+# Build X and y
+print("Building X and y vectors")
+X_train = data_train[:, 1:] # input matrix of scaled stock values
+print("X:")
+print(X_train.shape)
+y_train = data_train[:, 0]  # output vector
+print("y:")
+print(y_train.shape)
+X_test = data_test[:, 1:]
+y_test = data_test[:, 0]
+
+# Initializer functions to start weights and biases
+sigma = 1
+weight_initializer = tf.variance_scaling_initializer(mode="fan_avg", distribution="uniform", scale=sigma)
+bias_initializer = tf.zeros_initializer()
+
+# Defines network layer parameters
+n_stocks = 500
 n_neurons_1 = 1024
 n_neurons_2 = 512
 n_neurons_3 = 256
 n_neurons_4 = 128
 n_target = 1
 
-# Initializers
-sigma = 1
-weight_initializer = tf.variance_scaling_initializer(mode="fan_avg", distribution="uniform", scale=sigma)
-bias_initializer = tf.zeros_initializer()
+# Placeholder vectors for input and output
+X = tf.placeholder(dtype=tf.float32, shape=[None, n_stocks])
+Y = tf.placeholder(dtype=tf.float32, shape=[None])
 
 # Layer 1: Variables for hidden weights and biases
-W_hidden_1 = tf.Variable(weight_initializer([p, n_neurons_1]))
+W_hidden_1 = tf.Variable(weight_initializer([n_stocks, n_neurons_1]))
 bias_hidden_1 = tf.Variable(bias_initializer([n_neurons_1]))
 
 # Layer 2: Variables for hidden weights and biases
@@ -80,7 +92,7 @@ bias_hidden_4 = tf.Variable(bias_initializer([n_neurons_4]))
 W_out = tf.Variable(weight_initializer([n_neurons_4, n_target]))
 bias_out = tf.Variable(bias_initializer([n_target]))
 
-# Hidden layer
+# Defines connections between layers
 hidden_1 = tf.nn.relu(tf.add(tf.matmul(X, W_hidden_1), bias_hidden_1))
 hidden_2 = tf.nn.relu(tf.add(tf.matmul(hidden_1, W_hidden_2), bias_hidden_2))
 hidden_3 = tf.nn.relu(tf.add(tf.matmul(hidden_2, W_hidden_3), bias_hidden_3))
@@ -88,8 +100,11 @@ hidden_4 = tf.nn.relu(tf.add(tf.matmul(hidden_3, W_hidden_4), bias_hidden_4))
 
 # Output layer (must be transposed)
 out = tf.transpose(tf.add(tf.matmul(hidden_4, W_out), bias_out))
-mse = tf.reduce_mean(tf.squared_difference(out, y))
 
+# Cost function
+mse = tf.reduce_mean(tf.squared_difference(out, Y))
+
+# Optimizer
 opt = tf.train.AdamOptimizer().minimize(mse)
 
 # Make Session
@@ -100,11 +115,10 @@ net.run(tf.global_variables_initializer())
 
 # Number of epochs and batch size
 epochs = 10
-batch_size = 32
+batch_size = 256
 
 for e in range(epochs):
-    print("Epoch {}".format(e))
-
+    
     # Shuffle training data
     shuffle_indices = np.random.permutation(np.arange(len(y_train)))
     X_train = X_train[shuffle_indices]
@@ -116,24 +130,16 @@ for e in range(epochs):
         batch_x = X_train[start:start + batch_size]
         batch_y = y_train[start:start + batch_size]
 
+        
         # Run optimizer with batch
-        net.run(opt, feed_dict={X: batch_x, y: batch_y})
+        net.run(opt, feed_dict={X: batch_x, Y: batch_y})
 
 
-pred = float(net.run(out, feed_dict={X: X_test[0:1]}))
-print("Prediction = {}".format(pred))
-print("Actual = {}".format(y_test[0]))
+# Print final MSE after Training
+mse_final = net.run(mse, feed_dict={X: X_test, Y: y_test})
+print(mse_final)
 
-
-
-
-
-
-
-
-
-
-
+'''
 
 
 
